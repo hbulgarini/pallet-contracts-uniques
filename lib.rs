@@ -1,11 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use ink::{
-    env::Environment
-};
+use ink_env::Environment;
 
-type DefaultAccountId = <ink::env::DefaultEnvironment as Environment>::AccountId;
-type DefaultBalance = <ink::env::DefaultEnvironment as Environment>::Balance;
+use ink_lang as ink;
+pub use xcm::{VersionedMultiAsset, VersionedMultiLocation, VersionedResponse, VersionedXcm};
+
+type DefaultAccountId = <ink_env::DefaultEnvironment as Environment>::AccountId;
+type DefaultBalance = <ink_env::DefaultEnvironment as Environment>::Balance;
 
 #[ink::chain_extension]
 pub trait Psp02Extension {
@@ -34,7 +35,7 @@ impl From<scale::Error> for Psp02Error {
     }
 }
 
-impl ink::env::chain_extension::FromStatusCode for Psp02Error {
+impl ink_env::chain_extension::FromStatusCode for Psp02Error {
     fn from_status_code(status_code: u32) -> core::result::Result<(), Self> {
         match status_code {
             0 => Ok(()),
@@ -47,13 +48,13 @@ impl ink::env::chain_extension::FromStatusCode for Psp02Error {
 pub enum CustomEnvironment {}
 
 impl Environment for CustomEnvironment {
-    const MAX_EVENT_TOPICS: usize = <ink::env::DefaultEnvironment as Environment>::MAX_EVENT_TOPICS;
+    const MAX_EVENT_TOPICS: usize = <ink_env::DefaultEnvironment as Environment>::MAX_EVENT_TOPICS;
 
-    type AccountId = <ink::env::DefaultEnvironment as Environment>::AccountId;
-    type Balance = <ink::env::DefaultEnvironment as Environment>::Balance;
-    type Hash = <ink::env::DefaultEnvironment as Environment>::Hash;
-    type BlockNumber = <ink::env::DefaultEnvironment as Environment>::BlockNumber;
-    type Timestamp = <ink::env::DefaultEnvironment as Environment>::Timestamp;
+    type AccountId = <ink_env::DefaultEnvironment as Environment>::AccountId;
+    type Balance = <ink_env::DefaultEnvironment as Environment>::Balance;
+    type Hash = <ink_env::DefaultEnvironment as Environment>::Hash;
+    type BlockNumber = <ink_env::DefaultEnvironment as Environment>::BlockNumber;
+    type Timestamp = <ink_env::DefaultEnvironment as Environment>::Timestamp;
 
     type ChainExtension = Psp02Extension;
 }
