@@ -12,7 +12,7 @@ pub trait Psp02Extension {
     type ErrorCode = Psp02Error;
 
     #[ink(extension = 0x162d)]
-    fn get_owner(asset_id: u32) -> Result<DefaultAccountId>;
+    fn get_owner(asset_id: u32, collection_id: u32) -> Result<DefaultAccountId>;
 
     // PSP22 transfer
     #[ink(extension = 0xdb20)]
@@ -44,22 +44,18 @@ impl ink::env::chain_extension::FromStatusCode for Psp02Error {
     }
 }
 
-/// An environment using default ink environment types, with PSP-22 extension included
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
 pub enum CustomEnvironment {}
 
 impl Environment for CustomEnvironment {
-    const MAX_EVENT_TOPICS: usize =
-        <ink::env::DefaultEnvironment as Environment>::MAX_EVENT_TOPICS;
+    const MAX_EVENT_TOPICS: usize = <ink::env::DefaultEnvironment as Environment>::MAX_EVENT_TOPICS;
 
-    type AccountId = DefaultAccountId;
-    type Balance = DefaultBalance;
+    type AccountId = <ink::env::DefaultEnvironment as Environment>::AccountId;
+    type Balance = <ink::env::DefaultEnvironment as Environment>::Balance;
     type Hash = <ink::env::DefaultEnvironment as Environment>::Hash;
-    type Timestamp = <ink::env::DefaultEnvironment as Environment>::Timestamp;
     type BlockNumber = <ink::env::DefaultEnvironment as Environment>::BlockNumber;
+    type Timestamp = <ink::env::DefaultEnvironment as Environment>::Timestamp;
 
-    type ChainExtension = crate::Psp02Extension;
+    type ChainExtension = Psp02Extension;
 }
 
 #[ink::contract(env = crate::CustomEnvironment)]
@@ -86,15 +82,15 @@ mod psp02_ext {
         // PSP22 Metadata interfaces
 
         /// Returns the token name of the specified asset.
-        #[ink(message, selector = 0x3d261bd4)]
-        pub fn get_owner(&self, asset_id: u32) -> Result<DefaultAccountId> {
-            self.env().extension().get_owner(asset_id)
+        #[ink(message)]
+        pub fn get_owner(&self, asset_id: u32, collection_id: u32) -> Result<DefaultAccountId> {
+            self.env().extension().get_owner(asset_id, collection_id)
         }
         // PSP22 transfer
 
         /// Transfers `value` amount of specified asset from the caller's account to the
         /// account `to`.
-        #[ink(message, selector = 0xdb20f9f5)]
+        #[ink(message)]
         pub fn transfer_nft(
             &mut self,
             asset_id: u32, dest: DefaultAccountId, collection_id: u32

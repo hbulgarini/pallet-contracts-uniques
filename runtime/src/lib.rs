@@ -37,7 +37,7 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		InvalidCommand
+		Error
 	}
 
 	impl<T: Config> Pallet<T> {}
