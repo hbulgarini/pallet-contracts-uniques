@@ -44,6 +44,22 @@ use sp_runtime::{
     DispatchError,
 };
 
+pub use xcm::opaque::latest::prelude::{
+    Junction, Junctions, MultiLocation, OriginKind, Transact, Xcm,
+};
+//pub use xcm::opaque::latest::prelude::*;
+pub use xcm::{
+    v3::{
+        AssetId, Fungibility,
+        Instruction::{
+            BuyExecution, DepositAsset, DepositReserveAsset, InitiateReserveWithdraw,
+            WithdrawAsset,
+        },
+        MultiAsset, MultiAssetFilter, MultiAssets, Parent, WeightLimit, WildMultiAsset, AssetInstance
+    },
+    VersionedMultiAsset, VersionedMultiLocation, VersionedResponse, VersionedXcm
+};
+
 use super::*;
 
 #[derive(Debug, PartialEq, Encode, Decode, MaxEncodedLen)]
@@ -53,9 +69,9 @@ struct Psp02PriceOf<ItemId, AccountId> {
 }
 
 #[derive(Debug, PartialEq, Encode, Decode, MaxEncodedLen)]
-struct Item<ItemId, CollectionId> {
-    item_id: ItemId,
-    collection_id: CollectionId,
+struct Item<MultiLocation, AssetInstance> {
+    asset: MultiLocation,
+    instance: AssetInstance,
 }
 
 #[derive(Debug, PartialEq, Encode, Decode, MaxEncodedLen)]
