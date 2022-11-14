@@ -1,64 +1,17 @@
-use codec::{
-    Decode,
-    Encode,
-    MaxEncodedLen,
-};
+use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
-    DefaultNoBound,
-    dispatch::RawOrigin,
-    log::{
-        error,
-        trace,
-    },
+    log::{error, trace},
     pallet_prelude::*,
-    traits::tokens::nonfungibles::{
-        Inspect,
-        Transfer,
-    },
-};
-pub use sp_core::{
-	crypto::{
-		Wraps,
-	},
-};
-use pallet_uniques::{
-    self,
-    WeightInfo,
+    traits::tokens::nonfungibles::{Inspect, Transfer},
+    DefaultNoBound,
 };
 use pallet_contracts::chain_extension::{
-    ChainExtension,
-    Environment,
-    Ext,
-    InitState,
-    RetVal,
-    SysConfig,
+    ChainExtension, Environment, Ext, InitState, RegisteredChainExtension, RetVal, SysConfig,
     UncheckedFrom,
-    RegisteredChainExtension
 };
-use sp_runtime::{
-    traits::{
-        Saturating,
-        StaticLookup,
-        Zero,
-    },
-    DispatchError,
-};
-
-pub use xcm::opaque::latest::prelude::{
-    Junction, Junctions, MultiLocation, OriginKind, Transact, Xcm,
-};
-//pub use xcm::opaque::latest::prelude::*;
-pub use xcm::{
-    v3::{
-        AssetId, Fungibility,
-        Instruction::{
-            BuyExecution, DepositAsset, DepositReserveAsset, InitiateReserveWithdraw,
-            WithdrawAsset,
-        },
-        MultiAsset, MultiAssetFilter, MultiAssets, Parent, WeightLimit, WildMultiAsset, AssetInstance
-    },
-    VersionedMultiAsset, VersionedMultiLocation, VersionedResponse, VersionedXcm
-};
+use pallet_uniques::{self, Config as UniqueConfig, WeightInfo};
+pub use sp_core::crypto::Wraps;
+use sp_runtime::DispatchError;
 
 use super::*;
 
@@ -69,21 +22,21 @@ struct Psp02PriceOf<ItemId, AccountId> {
 }
 
 #[derive(Debug, PartialEq, Encode, Decode, MaxEncodedLen)]
-struct Item<MultiLocation, AssetInstance> {
-    asset: MultiLocation,
-    instance: AssetInstance,
+struct Item<ItemId, CollectionId> {
+    item_id: ItemId,
+    collection_id: CollectionId,
 }
 
 #[derive(Debug, PartialEq, Encode, Decode, MaxEncodedLen)]
 struct Psp02TransferInput<ItemId, CollectionId, AccountId> {
     collection_id: CollectionId,
     item_id: ItemId,
-    dest: AccountId
+    dest: AccountId,
 }
 
-#[derive(Default)]
-pub struct Psp02Extension {
-
+#[derive(DefaultNoBound)]
+pub struct Psp02Extension<T: Config> {
+    _phantom: PhantomData<T>,
 }
 
 fn convert_err(err_msg: &'static str) -> impl FnOnce(DispatchError) -> DispatchError {
@@ -100,13 +53,13 @@ fn convert_err(err_msg: &'static str) -> impl FnOnce(DispatchError) -> DispatchE
 /// We're using enums for function IDs because contrary to raw u16 it enables
 /// exhaustive matching, which results in cleaner code.
 enum FuncId {
-    QueryOwner,
-    Transfer
+    Query(Query),
+    Transfer,
 }
 
 #[derive(Debug)]
 enum Query {
-    Owner
+    Owner,
 }
 
 impl TryFrom<u16> for FuncId {
@@ -116,33 +69,41 @@ impl TryFrom<u16> for FuncId {
         let id = match func_id {
             // Note: We use the first two bytes of PSP22 interface selectors as function IDs,
             // While we can use anything here, it makes sense from a convention perspective.
-            0x162d => Self::QueryOwner,
+            0x162d => Self::Query(Query::Owner),
             0xdb20 => Self::Transfer,
             _ => {
                 error!("Called an unregistered `func_id`: {:}", func_id);
-                return Err(DispatchError::Other("Unimplemented func_id"))
+                return Err(DispatchError::Other("Unimplemented func_id"));
             }
         };
 
         Ok(id)
     }
-} 
+}
 
-/* fn query<T, E>(
-    func_id: Query,
-    env: Environment<E, InitState>,
-) -> Result<(), DispatchError>
+fn query<E>(func_id: Query, env: Environment<E, InitState>) -> Result<(), DispatchError>
 where
-    T: pallet_uniques::Config + pallet_contracts::Config,
-    <T as SysConfig>::AccountId: UncheckedFrom<<T as SysConfig>::Hash> + AsRef<[u8; 32]>,
-    E: Ext<T = T>,
+    E: Ext,
+    E::T: Config,
+    <E::T as SysConfig>::AccountId: UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
 {
     let mut env = env.buf_in_buf_out();
     let result = match func_id {
         Query::Owner => {
-            let input: Psp02TransferInput<T::ItemId, T::CollectionId, T::AccountId> = env.read_as_unbounded()?;
-            let Psp02TransferInput {collection_id,  item_id, dest: _} = input;
-            <pallet_uniques::Pallet<T> as Inspect<T::AccountId>>::owner(&collection_id,&item_id)
+            let input: Psp02TransferInput<
+                <E::T as UniqueConfig>::ItemId,
+                <E::T as UniqueConfig>::CollectionId,
+                <E::T as SysConfig>::AccountId,
+            > = env.read_as()?;
+            let Psp02TransferInput {
+                collection_id,
+                item_id,
+                dest: _,
+            } = input;
+            <pallet_uniques::Pallet<E::T> as Inspect<<E::T as SysConfig>::AccountId>>::owner(
+                &collection_id,
+                &item_id,
+            )
         }
     }
     .encode();
@@ -155,18 +116,18 @@ where
         .map_err(convert_err("ChainExtension failed to call PSP22 query"))
 }
 
-fn transfer<T, E>(env: Environment<E, InitState>) -> Result<(), DispatchError>
+fn transfer<E>(env: Environment<E, InitState>) -> Result<(), DispatchError>
 where
-    T: pallet_uniques::Config + pallet_contracts::Config,
-    <T as SysConfig>::AccountId: UncheckedFrom<<T as SysConfig>::Hash> + AsRef<[u8; 32]>,
-    E: Ext<T = T>,
+    E: Ext,
+    E::T: Config,
+    <E::T as SysConfig>::AccountId: UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
 {
     let mut env = env.buf_in_buf_out();
-    let base_weight = <T as pallet_uniques::Config>::WeightInfo::transfer();
+    let base_weight = <E::T as pallet_uniques::Config>::WeightInfo::transfer();
     // debug_message weight is a good approximation of the additional overhead of going from
     // contract layer to substrate layer.
     let overhead = Weight::from_ref_time(
-        <T as pallet_contracts::Config>::Schedule::get()
+        <E::T as pallet_contracts::Config>::Schedule::get()
             .host_fn_weights
             .debug_message,
     );
@@ -177,14 +138,22 @@ where
         charged_weight
     );
 
-    let input: Psp02TransferInput<T::ItemId, T::CollectionId, T::AccountId> = env.read_as()?;
-    let Psp02TransferInput {collection_id,  item_id, dest} = input;
-    let sender = env.ext().caller();
+    let input: Psp02TransferInput<
+        <E::T as UniqueConfig>::ItemId,
+        <E::T as UniqueConfig>::CollectionId,
+        <E::T as SysConfig>::AccountId,
+    > = env.read_as()?;
+    let Psp02TransferInput {
+        collection_id,
+        item_id,
+        dest,
+    } = input;
+    let _sender = env.ext().caller();
 
-    <pallet_uniques::Pallet<T> as Transfer<T::AccountId>>::transfer(
+    <pallet_uniques::Pallet<E::T> as Transfer<<E::T as SysConfig>::AccountId>>::transfer(
         &collection_id,
         &item_id,
-        &dest
+        &dest,
     )
     .map_err(convert_err("ChainExtension failed to call transfer"))?;
     trace!(
@@ -193,63 +162,32 @@ where
     );
 
     Ok(())
-} */
-
-impl<T: Config> ChainExtension<T> for Psp02Extension
-where
-    T: pallet_uniques::Config + pallet_contracts::Config,
-	<T as SysConfig>::AccountId: AsRef<[u8; 32]>
-{
-	fn call<E>(&mut self, mut env: Environment<E, InitState>) -> Result<RetVal,DispatchError>
-	where
-		E: Ext<T = T>,
-		<E::T as SysConfig>::AccountId: UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
-	{
-        let func_id = FuncId::try_from(env.func_id())?;
-        match func_id {
-            FuncId::QueryOwner => {
-                let mut env = env.buf_in_buf_out();
-                let input: Psp02TransferInput<T::ItemId, T::CollectionId, T::AccountId> = env.read_as()?;
-                let Psp02TransferInput {collection_id,  item_id, dest: _} = input;
-                let result = <pallet_uniques::Pallet<T> as Inspect<T::AccountId>>::owner(&collection_id,&item_id);
-/*                 env.write(&result.encode(), false, None)
-                .map_err(convert_err("ChainExtension failed to call PSP22 query")) */
-            },
-            FuncId::Transfer => {
-                let mut env = env.buf_in_buf_out();
-                let base_weight = <T as pallet_uniques::Config>::WeightInfo::transfer();
-                // debug_message weight is a good approximation of the additional overhead of going from
-                // contract layer to substrate layer.
-                let overhead = Weight::from_ref_time(
-                    <T as pallet_contracts::Config>::Schedule::get()
-                        .host_fn_weights
-                        .debug_message,
-                );
-                let charged_weight = env.charge_weight(base_weight.saturating_add(overhead))?;
-                trace!(
-                    target: "runtime",
-                    "[ChainExtension]|call|transfer / charge_weight:{:?}",
-                    charged_weight
-                );
-            
-                let input: Psp02TransferInput<T::ItemId, T::CollectionId, T::AccountId> = env.read_as()?;
-                let Psp02TransferInput {collection_id,  item_id, dest} = input;
-                let sender = env.ext().caller();
-            
-                <pallet_uniques::Pallet<T> as Transfer<T::AccountId>>::transfer(
-                    &collection_id,
-                    &item_id,
-                    &dest
-                )?;
-            }
-        }
-        Ok(RetVal::Converging(0))
-	}
 }
 
-impl<T: Config> RegisteredChainExtension<T> for Psp02Extension
+impl<T> ChainExtension<T> for Psp02Extension<T>
 where
-	<T as SysConfig>::AccountId: AsRef<[u8; 32]>
+    T: Config,
+    <T as SysConfig>::AccountId: UncheckedFrom<<T as SysConfig>::Hash> + AsRef<[u8]>,
 {
-	const ID: u16 = 2;
+    fn call<E: Ext>(&mut self, env: Environment<E, InitState>) -> Result<RetVal, DispatchError>
+    where
+        E: Ext<T = T>,
+        <E::T as SysConfig>::AccountId: UncheckedFrom<<E::T as SysConfig>::Hash> + AsRef<[u8]>,
+    {
+        let func_id = FuncId::try_from(env.func_id())?;
+        match func_id {
+            FuncId::Query(func_id) => query::<E>(func_id, env)?,
+            FuncId::Transfer => transfer::<E>(env)?,
+        }
+
+        Ok(RetVal::Converging(0))
+    }
+}
+
+impl<T> RegisteredChainExtension<T> for Psp02Extension<T>
+where
+    T: Config,
+    <T as SysConfig>::AccountId: UncheckedFrom<<T as SysConfig>::Hash> + AsRef<[u8]>,
+{
+    const ID: u16 = 2;
 }
